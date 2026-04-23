@@ -2,26 +2,25 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime
-import plotly.express as px  # Para o cronograma profissional
+import plotly.express as px
 
-# --- 1. BASE DE DADOS (TODAS AS TABELAS DO CADERNO) ---
+# --- CONFIGURAÇÃO DA PÁGINA (Deve ser o primeiro comando Streamlit) ---
+st.set_page_config(page_title="SIGO - Gestão 360", layout="wide")
+
+# --- 1. BASE DE DADOS ---
 def init_db():
     conn = sqlite3.connect('sigo_dados.db')
     c = conn.cursor()
-    # Materiais (Foto 1)
     c.execute('''CREATE TABLE IF NOT EXISTS materiais 
                  (id INTEGER PRIMARY KEY, material TEXT, estoque INTEGER, 
                   ponto_pedido INTEGER, em_transito INTEGER, origem TEXT, lead_time INTEGER)''')
-    # Obras e Planejamento (Novo pedido: Datas profissionais)
     c.execute('''CREATE TABLE IF NOT EXISTS obras 
                  (id INTEGER PRIMARY KEY, nome_obra TEXT, data_inicio TEXT, 
                   data_fim TEXT, status_obra TEXT)''')
-    # Saídas e Movimentação
     c.execute('''CREATE TABLE IF NOT EXISTS movimentacao 
                  (id INTEGER PRIMARY KEY, obra_id INTEGER, material_id INTEGER, 
                   quantidade INTEGER, tipo TEXT, data TEXT)''')
     
-    # Dados iniciais para demonstração
     c.execute("SELECT count(*) FROM materiais")
     if c.fetchone()[0] == 0:
         materiais_base = [
@@ -46,13 +45,13 @@ def query_db(sql):
     conn.close()
     return df
 
-# --- 2. AUTENTICAÇÃO (ITEM 1 DO SEU CADERNO) ---
+# --- 2. LOGIN (ANTIGA AUTENTICAÇÃO) ---
 def login():
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
 
     if not st.session_state.logged_in:
-        st.title("🏗️ Software SIGO - Autenticação")
+        st.title("🧱 Software SIGO - Login")
         with st.form("login_sigo"):
             user = st.text_input("Usuário")
             pw = st.text_input("Senha", type="password")
@@ -69,35 +68,18 @@ def login():
 init_db()
 
 if login():
-    st.set_page_config(page_title="SIGO - Gestão 360", layout="wide")
-    
-    # Sidebar baseada na sua lista do caderno (1 a 6)
+    # Sidebar com a nova ordem solicitada
     st.sidebar.title("SIGO - Menu Principal")
     menu = st.sidebar.radio("Navegação:", [
-        "6 - Monitoramento (Dashboard)",
-        "2 - Planejamento de Obras",
-        "3 - Gestão de Compras (O que precisa)",
-        "4 - Recebimento (Inspeção 5S)",
-        "5 - Saída para o Canteiro"
+        "1. Planejamento de Obras",
+        "2. Gestão de Compras (o que precisa)",
+        "3. Recebimento (Inspeção 5S)",
+        "4. Saída para o Canteiro",
+        "5. Monitoramento (Dashboard)"
     ])
 
-    # --- 6. MONITORAMENTO (DASHBOARD / CHECK) ---
-    if menu == "6 - Monitoramento (Dashboard)":
-        st.header("Dashboard de Controle [CHECK]")
-        df_mat = query_db("SELECT * FROM materiais")
-        df_mat['Status'] = df_mat.apply(lambda x: '🔴 COMPRAR AGORA' if x['estoque'] <= x['ponto_pedido'] else '🟢 OK', axis=1)
-        
-        st.subheader("Situação Crítica de Materiais")
-        st.dataframe(df_mat[['material', 'estoque', 'ponto_pedido', 'Status']], use_container_width=True)
-        
-        st.divider()
-        st.subheader("Visualização de Estoque Atual")
-        fig = px.bar(df_mat, x='material', y='estoque', color='Status', 
-                     color_discrete_map={'🔴 COMPRAR AGORA':'#EF553B', '🟢 OK':'#00CC96'})
-        st.plotly_chart(fig, use_container_width=True)
-
-    # --- 2. PLANEJAMENTO (COM DATAS PROFISSIONAIS) ---
-    elif menu == "2 - Planejamento de Obras":
+    # --- 1. PLANEJAMENTO DE OBRAS ---
+    if menu == "1. Planejamento de Obras":
         st.header("Planejamento Estratégico [PLAN]")
         t1, t2 = st.tabs(["Cadastrar Obra", "Cronograma (Gantt)"])
         
@@ -118,44 +100,54 @@ if login():
         with t2:
             df_obras = query_db("SELECT * FROM obras")
             if not df_obras.empty:
-                # Gerando gráfico de Gantt Profissional
+                # CORREÇÃO DO CRONOGRAMA: Converter para datetime para evitar erro no Plotly
+                df_obras['data_inicio'] = pd.to_datetime(df_obras['data_inicio'])
+                df_obras['data_fim'] = pd.to_datetime(df_obras['data_fim'])
+                
                 fig_gantt = px.timeline(df_obras, x_start="data_inicio", x_end="data_fim", y="nome_obra", color="status_obra")
                 fig_gantt.update_yaxes(autorange="reversed")
                 st.plotly_chart(fig_gantt, use_container_width=True)
             else: st.info("Nenhuma obra para exibir.")
 
-    # --- 3. GESTÃO DE COMPRAS ---
-    elif menu == "3 - Gestão de Compras (O que precisa)":
+    # --- 2. GESTÃO DE COMPRAS ---
+    elif menu == "2. Gestão de Compras (o que precisa)":
         st.header("Gestão de Compras & Suprimentos")
         df_compras = query_db("SELECT material, estoque, ponto_pedido, lead_time FROM materiais WHERE estoque <= ponto_pedido")
         if not df_compras.empty:
-            st.warning("Itens abaixo do ponto de pedido:")
+            st.warning("Itens que precisam de atenção ou compra:")
             st.table(df_compras)
         else:
             st.success("Estoque saudável. Nada para comprar no momento.")
 
-    # --- 4. RECEBIMENTO (INSPEÇÃO 5S) ---
-    elif menu == "4 - Recebimento (Inspeção 5S)":
+    # --- 3. RECEBIMENTO (INSPEÇÃO 5S) ---
+    elif menu == "3. Recebimento (Inspeção 5S)":
         st.header("Recebimento Técnica 5S")
-        st.info("Siga o padrão: Utilização, Organização, Limpeza, Padronização e Disciplina.")
         
+        # Tabela Visual do 5S conforme solicitado
+        st.subheader("Checklist dos 5 Sensos")
+        dados_5s = {
+            "Senso": ["1. Utilização (Seiri)", "2. Organização (Seiton)", "3. Limpeza (Seiso)", "4. Padronização (Seiketsu)", "5. Disciplina (Shitsuke)"],
+            "Descrição": ["Separar o necessário do desnecessário", "Um lugar para cada coisa", "Limpar e não sujar", "Manter a higiene e padrões", "Cumprir os procedimentos"],
+            "Status": ["Verificado", "Verificado", "Verificado", "Verificado", "Obrigatório"]
+        }
+        st.table(dados_5s)
+
         mats = query_db("SELECT id, material FROM materiais")
         m_id = st.selectbox("Selecionar Material Chegando", mats['id'], format_func=lambda x: mats[mats['id']==x]['material'].values[0])
         qtd = st.number_input("Quantidade Recebida", min_value=1)
         
-        # O "Obrigatório" que você pediu (Shitsuke)
-        c1 = st.checkbox("Material conferido e sem avarias?")
-        c2 = st.checkbox("Alocado no local correto?")
+        c1 = st.checkbox("Material conferido e sem avarias? (Qualidade)")
+        c2 = st.checkbox("Alocado no local correto? (Organização)")
         
         if st.button("Registrar Entrada"):
             if c1 and c2:
                 executar_sql("UPDATE materiais SET estoque = estoque + ? WHERE id = ?", (qtd, m_id))
-                st.success("Entrada registrada com sucesso no sistema!")
+                st.success("Entrada registrada com sucesso seguindo o padrão 5S!")
             else:
-                st.error("A inspeção 5S é obrigatória para registrar!")
+                st.error("A inspeção 5S é obrigatória para registrar a entrada!")
 
-    # --- 5. SAÍDA PARA O CANTEIRO ---
-    elif menu == "5 - Saída para o Canteiro":
+    # --- 4. SAÍDA PARA O CANTEIRO ---
+    elif menu == "4. Saída para o Canteiro":
         st.header("Saída de Materiais [DO]")
         obras = query_db("SELECT id, nome_obra FROM obras")
         mats = query_db("SELECT id, material, estoque FROM materiais")
@@ -173,7 +165,36 @@ if login():
                 else:
                     st.error("Estoque insuficiente!")
 
-    # Botão de Logout
+    # --- 5. MONITORAMENTO (DASHBOARD) ---
+    elif menu == "5. Monitoramento (Dashboard)":
+        st.header("Dashboard de Controle [CHECK]")
+        df_mat = query_db("SELECT * FROM materiais")
+        
+        # Lógica das 3 Cores solicitadas
+        def definir_status(row):
+            if row['estoque'] <= row['ponto_pedido']:
+                return '🔴 COMPRAR AGORA'
+            elif row['estoque'] <= (row['ponto_pedido'] * 1.3): # 30% acima do ponto de pedido
+                return '🟠 ATENÇÃO'
+            else:
+                return '🟢 ESTOQUE OK'
+
+        df_mat['Status'] = df_mat.apply(definir_status, axis=1)
+        
+        st.subheader("Situação Crítica de Materiais (Kanban)")
+        st.dataframe(df_mat[['material', 'estoque', 'ponto_pedido', 'Status']], use_container_width=True)
+        
+        st.divider()
+        st.subheader("Visualização Gráfica")
+        fig = px.bar(df_mat, x='material', y='estoque', color='Status', 
+                     color_discrete_map={
+                         '🔴 COMPRAR AGORA':'#EF553B', 
+                         '🟠 ATENÇÃO': '#FFA500',
+                         '🟢 ESTOQUE OK':'#00CC96'
+                     })
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Botão de Logout na Sidebar
     if st.sidebar.button("Sair"):
         st.session_state.logged_in = False
         st.rerun()
