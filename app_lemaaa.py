@@ -150,6 +150,16 @@ if login():
                 st.error("🚨 ATENÇÃO: Itens abaixo do ponto de pedido (Comprar Imediatamente):")
                 hoje = datetime.now()
                 df_compras['Previsão de Chegada'] = df_compras['lead_time'].apply(lambda x: (hoje + timedelta(days=x)).strftime('%d/%m/%Y'))
+                
+                # ALTERAÇÃO: Renomeando colunas para iniciar com maiúscula
+                df_compras.rename(columns={
+                    'material': 'Material',
+                    'estoque': 'Estoque',
+                    'ponto_pedido': 'Ponto_pedido',
+                    'origem': 'Origem',
+                    'lead_time': 'Lead_time'
+                }, inplace=True)
+                
                 st.table(df_compras)
             else:
                 st.success("✅ Estoque saudável. Nada para comprar no momento.")
@@ -178,9 +188,11 @@ if login():
         
         with st.expander("📚 INSTRUÇÕES: Padrão 5S (Clique para abrir/fechar)", expanded=True):
             st.info("Siga este checklist mental e visual antes de dar entrada no material:")
+            
+            # ALTERAÇÃO: "Um lugar para cada coisa" foi modificado para "Um lugar para cada item"
             dados_5s = {
                 "Senso": ["1. Utilização (Seiri)", "2. Organização (Seiton)", "3. Limpeza (Seiso)", "4. Padronização (Seiketsu)", "5. Disciplina (Shitsuke)"],
-                "Descrição": ["Separar o necessário do desnecessário", "Um lugar para cada coisa", "Limpar e não sujar", "Manter a higiene e padrões", "Cumprir os procedimentos"],
+                "Descrição": ["Separar o necessário do desnecessário", "Um lugar para cada item", "Limpar e não sujar", "Manter a higiene e padrões", "Cumprir os procedimentos"],
                 "Status na Chegada": ["Verificar Validade/Estado", "Definir local no Almoxarifado", "Sem embalagens sujas", "Seguir a norma da obra", "Registro Obrigatório no Sistema"]
             }
             st.table(dados_5s)
@@ -227,7 +239,8 @@ if login():
                     st.error(f"Estoque insuficiente! Você tem apenas {estoque_atual} unidades deste material.")
         else:
             st.warning("Cadastre obras e materiais antes de fazer movimentações.")
-# --- MENU 5. MONITORAMENTO / DASHBOARD ---
+
+    # --- MENU 5. MONITORAMENTO / DASHBOARD ---
     elif menu == "5. Monitoramento (Dashboard)":
         st.header("Dashboard de Controle [CHECK]")
         df_mat = query_db("SELECT * FROM materiais")
@@ -241,7 +254,17 @@ if login():
             df_mat['Status'] = df_mat.apply(definir_status, axis=1)
             
             st.subheader("Situação Crítica de Materiais (Kanban)")
-            st.dataframe(df_mat[['material', 'estoque', 'ponto_pedido', 'origem', 'Status']], use_container_width=True)
+            
+            # ALTERAÇÃO: Renomeando colunas para iniciar com maiúscula
+            df_mat_exibicao = df_mat[['material', 'estoque', 'ponto_pedido', 'origem', 'Status']].rename(
+                columns={
+                    'material': 'Material',
+                    'estoque': 'Estoque',
+                    'ponto_pedido': 'Ponto_pedido',
+                    'origem': 'Origem'
+                }
+            )
+            st.dataframe(df_mat_exibicao, use_container_width=True)
             
             st.divider()
             st.subheader("Visualização Gráfica do Estoque")
@@ -292,4 +315,3 @@ if login():
     if st.sidebar.button("Sair do Sistema (Logout)"):
         st.session_state.logged_in = False
         st.rerun()
-    
