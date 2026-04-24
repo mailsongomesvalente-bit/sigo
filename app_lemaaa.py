@@ -227,8 +227,7 @@ if login():
                     st.error(f"Estoque insuficiente! Você tem apenas {estoque_atual} unidades deste material.")
         else:
             st.warning("Cadastre obras e materiais antes de fazer movimentações.")
-
-    # --- MENU 5. MONITORAMENTO / DASHBOARD ---
+# --- MENU 5. MONITORAMENTO / DASHBOARD ---
     elif menu == "5. Monitoramento (Dashboard)":
         st.header("Dashboard de Controle [CHECK]")
         df_mat = query_db("SELECT * FROM materiais")
@@ -293,3 +292,4 @@ if login():
     if st.sidebar.button("Sair do Sistema (Logout)"):
         st.session_state.logged_in = False
         st.rerun()
+    
