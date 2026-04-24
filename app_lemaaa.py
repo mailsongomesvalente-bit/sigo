@@ -16,48 +16,52 @@ def init_db():
     
     c.execute('''CREATE TABLE IF NOT EXISTS materiais 
                  (id INTEGER PRIMARY KEY, material TEXT, estoque INTEGER, 
-                  ponto_pedido INTEGER, origem TEXT, lead_time INTEGER)''')
+                  ponto_pedido INTEGER, em_transito INTEGER, origem TEXT, lead_time INTEGER)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS obras 
                  (id INTEGER PRIMARY KEY, nome_obra TEXT, data_inicio TEXT, 
                   data_fim TEXT, status_obra TEXT)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS movimentacao 
-                 (id INTEGER PRIMARY KEY, obra_nome TEXT, material_nome TEXT, 
-                  quantidade INTEGER, data TEXT)''')
+                 (id INTEGER PRIMARY KEY, obra_id INTEGER, material_id INTEGER, 
+                  quantidade INTEGER, tipo TEXT, data TEXT)''')
     
+    # Dados de teste garantindo as 3 Cores no Kanban e as origens
     c.execute("SELECT count(*) FROM materiais")
     if c.fetchone()[0] == 0:
         materiais_base = [
-            ('Porcelanato 80x80 (m²)', 50, 100, 'Sul (SC)', 25),
-            ('Metais Sanitários (Lote)', 10, 20, 'Sudeste (SP)', 20),
-            ('Cimento CP-II (Saco)', 120, 150, 'Local (PA)', 3),
-            ('Aço CA-50 10mm', 90, 200, 'Sudeste (MG)', 22),
-            ('Cabos Elétricos 2.5mm', 15, 30, 'Sudeste (SP)', 15),
-            ('Tubos PVC 100mm', 40, 30, 'Local (PA)', 5)
+            ('Cimento (Fundação/Geral)', 5, 15, 0, 'Local (PA)', 3),          # Vermelho
+            ('Porcelanato (Revestimento)', 12, 10, 0, 'Sudeste', 20),         # Laranja
+            ('Esquadrias de Alumínio', 50, 10, 0, 'Nordeste', 12)             # Verde
         ]
-        c.executemany("INSERT INTO materiais (material, estoque, ponto_pedido, origem, lead_time) VALUES (?,?,?,?,?)", materiais_base)
+        c.executemany("INSERT INTO materiais (material, estoque, ponto_pedido, em_transito, origem, lead_time) VALUES (?,?,?,?,?,?)", materiais_base)
     
     conn.commit()
     conn.close()
 
 def executar_sql(sql, params=()):
-    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-    c.execute(sql, params); conn.commit(); conn.close()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(sql, params)
+    conn.commit()
+    conn.close()
 
 def query_db(sql):
     conn = sqlite3.connect(DB_PATH)
-    try: df = pd.read_sql_query(sql, conn)
-    except: df = pd.DataFrame()
+    try:
+        df = pd.read_sql_query(sql, conn)
+    except Exception as e:
+        df = pd.DataFrame()
     conn.close()
     return df
 
 init_db()
 
-# --- 3. SISTEMA DE LOGIN ---
+# --- 3. LOGIN ---
 def login():
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
+
     if not st.session_state.logged_in:
         st.title("🧱 Software SIGO - Login")
         with st.form("login_sigo"):
@@ -67,15 +71,14 @@ def login():
                 if user == "admin" and pw == "1234":
                     st.session_state.logged_in = True
                     st.rerun()
-                else: st.error("Credenciais incorretas.")
+                else:
+                    st.error("Credenciais incorretas.")
         return False
     return True
 
-# --- 4. INTERFACE PRINCIPAL ---
+# --- 4. INÍCIO DA APLICAÇÃO ---
 if login():
     st.sidebar.title("SIGO - Menu Principal")
-    
-    # OS NOMES ORIGINAIS DA SUA FOTO VOLTARAM AQUI:
     menu = st.sidebar.radio("Navegação:", [
         "1. Planejamento de Obras",
         "2. Gestão de Compras (o que precisa)",
@@ -84,10 +87,10 @@ if login():
         "5. Monitoramento (Dashboard)"
     ])
 
-    # --- MENU 1. PLANEJAMENTO ---
+    # --- MENU 1. PLANEJAMENTO DE OBRAS (AGORA COM CLONAGEM) ---
     if menu == "1. Planejamento de Obras":
         st.header("Planejamento Estratégico [PLAN]")
-        t1, t2, t3 = st.tabs(["Cadastrar Obra", "Cronograma", "📋 Clonar Insumos"])
+        t1, t2, t3 = st.tabs(["Cadastrar Obra", "Cronograma (Gantt)", "📋 Clonar Insumos"])
         
         with t1:
             with st.form("nova_obra"):
@@ -95,141 +98,166 @@ if login():
                 c1, c2 = st.columns(2)
                 ini = c1.date_input("Data de Início")
                 fim = c2.date_input("Previsão de Término")
+                status = st.selectbox("Status", ["Planejamento", "Execução", "Finalizada"])
                 if st.form_submit_button("Salvar Planejamento"):
-                    executar_sql("INSERT INTO obras (nome_obra, data_inicio, data_fim, status_obra) VALUES (?,?,?,?)", 
-                                 (nome, str(ini), str(fim), "Execução"))
-                    st.success(f"Obra '{nome}' planejada com sucesso!")
-
+                    if fim > ini:
+                        executar_sql("INSERT INTO obras (nome_obra, data_inicio, data_fim, status_obra) VALUES (?,?,?,?)", 
+                                     (nome, str(ini), str(fim), status))
+                        st.success("Obra planejada!")
+                    else: st.error("Data de fim deve ser após o início.")
+        
         with t2:
             df_obras = query_db("SELECT * FROM obras")
-            if not df_obras.empty:
-                df_obras['data_inicio'] = pd.to_datetime(df_obras['data_inicio'])
-                df_obras['data_fim'] = pd.to_datetime(df_obras['data_fim'])
-                fig_gantt = px.timeline(df_obras, x_start="data_inicio", x_end="data_fim", y="nome_obra", color="nome_obra")
-                st.plotly_chart(fig_gantt, use_container_width=True)
+            if not df_obras.empty and 'data_inicio' in df_obras.columns and 'data_fim' in df_obras.columns:
+                try:
+                    df_obras['data_inicio'] = pd.to_datetime(df_obras['data_inicio'])
+                    df_obras['data_fim'] = pd.to_datetime(df_obras['data_fim'])
+                    fig_gantt = px.timeline(df_obras, x_start="data_inicio", x_end="data_fim", y="nome_obra", color="status_obra")
+                    fig_gantt.update_yaxes(autorange="reversed")
+                    st.plotly_chart(fig_gantt, use_container_width=True)
+                except Exception as e:
+                    st.warning("Cadastre uma obra com datas válidas para gerar o cronograma.")
+            else: 
+                st.info("Nenhuma obra cadastrada ainda. Vá na aba 'Cadastrar Obra' para começar.")
 
         with t3:
             st.subheader("Clonar Orçamento de Materiais")
-            obras_db = query_db("SELECT nome_obra FROM obras")
-            if len(obras_db) >= 2:
-                origem = st.selectbox("Copiar insumos DE:", obras_db['nome_obra'], key="orig")
-                destino = st.selectbox("Para a NOVA obra:", obras_db['nome_obra'], key="dest")
+            obras = query_db("SELECT id, nome_obra FROM obras")
+            if len(obras) >= 2:
+                orig_id = st.selectbox("Copiar insumos da Obra Modelo:", obras['id'], format_func=lambda x: obras[obras['id']==x]['nome_obra'].values[0])
+                dest_id = st.selectbox("Para a NOVA Obra:", obras['id'], format_func=lambda x: obras[obras['id']==x]['nome_obra'].values[0], key="d")
                 if st.button("Executar Clonagem"):
-                    if origem != destino:
-                        itens_origem = query_db(f"SELECT material_nome, quantidade FROM movimentacao WHERE obra_nome = '{origem}'")
-                        if not itens_origem.empty:
-                            for _, row in itens_origem.iterrows():
-                                executar_sql("INSERT INTO movimentacao (obra_nome, material_nome, quantidade, data) VALUES (?,?,?,?)",
-                                             (destino, row['material_nome'], row['quantidade'], datetime.now().strftime('%Y-%m-%d')))
-                            st.success(f"Insumos copiados de {origem} para {destino}!")
-                        else: st.warning("A obra de origem está vazia.")
-                    else: st.error("Escolha obras diferentes.")
-            else: st.warning("Cadastre pelo menos duas obras para usar a clonagem.")
+                    if orig_id != dest_id:
+                        insumos = query_db(f"SELECT material_id, quantidade FROM movimentacao WHERE obra_id = {orig_id} AND tipo = 'SAIDA'")
+                        if not insumos.empty:
+                            for _, row in insumos.iterrows():
+                                executar_sql("INSERT INTO movimentacao (obra_id, material_id, quantidade, tipo, data) VALUES (?,?,?,?,?)",
+                                             (dest_id, row['material_id'], row['quantidade'], 'SAIDA', datetime.now().strftime('%Y-%m-%d')))
+                            st.success("Lista de materiais clonada com sucesso!")
+                        else: st.warning("A obra selecionada não possui materiais registrados para copiar.")
+                    else: st.error("Selecione obras diferentes.")
+            else: st.warning("É necessário ter pelo menos duas obras cadastradas para usar esta função.")
 
-    # --- MENU 2. COMPRAS ---
+    # --- MENU 2. GESTÃO DE COMPRAS (AGORA COM CADASTRO E LEAD TIME) ---
     elif menu == "2. Gestão de Compras (o que precisa)":
         st.header("Gestão de Compras & Suprimentos")
         t_lista, t_novo = st.tabs(["Necessidade de Compra", "➕ Cadastrar Material"])
         
         with t_lista:
-            df_mat = query_db("SELECT material, estoque, ponto_pedido, origem, lead_time FROM materiais")
-            if not df_mat.empty:
+            df_compras = query_db("SELECT material, estoque, ponto_pedido, origem, lead_time FROM materiais WHERE estoque <= ponto_pedido")
+            if not df_compras.empty:
+                st.error("🚨 ATENÇÃO: Itens abaixo do ponto de pedido (Comprar Imediatamente):")
+                # Lógica do tempo que vai chegar
                 hoje = datetime.now()
-                df_mat['Data Sugerida Pedido'] = df_mat['lead_time'].apply(lambda x: (hoje + timedelta(days=(30-x))).strftime('%d/%m/%Y'))
-                st.dataframe(df_mat, use_container_width=True)
+                df_compras['Previsão de Chegada'] = df_compras['lead_time'].apply(lambda x: (hoje + timedelta(days=x)).strftime('%d/%m/%Y'))
+                st.table(df_compras)
+            else:
+                st.success("✅ Estoque saudável. Nada para comprar no momento.")
                 
-                criticos = df_mat[df_mat['estoque'] <= df_mat['ponto_pedido']]
-                if not criticos.empty:
-                    st.error("🚨 ATENÇÃO: Itens abaixo do ponto de pedido!")
-                    st.table(criticos)
-
         with t_novo:
             with st.form("cad_material"):
-                n = st.text_input("Nome do Material")
-                o = st.selectbox("Origem", ["Local (PA)", "Sudeste (SP/MG)", "Sul (SC/PR)", "Nordeste"])
-                lt = st.number_input("Lead Time (Dias de Entrega)", min_value=1, value=20)
+                nome = st.text_input("Nome do Insumo")
+                origem = st.selectbox("Origem do Material", ["Local (PA)", "Sudeste (SP/MG/RJ)", "Sul (SC/PR)", "Nordeste"])
+                
+                # O sistema sugere um tempo médio baseado na região
+                tempos = {"Local (PA)": 3, "Nordeste": 12, "Sudeste (SP/MG/RJ)": 20, "Sul (SC/PR)": 25}
+                tempo_sugerido = tempos[origem]
+                
+                lt = st.number_input("Tempo de Entrega Estimado (Dias)", min_value=1, value=tempo_sugerido)
                 est = st.number_input("Estoque Inicial", min_value=0)
-                pp = st.number_input("Ponto de Pedido", min_value=1)
-                if st.form_submit_button("Salvar Material"):
-                    executar_sql("INSERT INTO materiais (material, estoque, ponto_pedido, origem, lead_time) VALUES (?,?,?,?,?)", (n, est, pp, o, lt))
-                    st.success("Material cadastrado!")
+                pp = st.number_input("Ponto de Pedido (Estoque Mínimo)", min_value=1)
+                
+                if st.form_submit_button("Cadastrar no Sistema"):
+                    executar_sql("INSERT INTO materiais (material, estoque, ponto_pedido, em_transito, origem, lead_time) VALUES (?,?,?,?,?,?)", 
+                                 (nome, est, pp, 0, origem, lt))
+                    st.success("Novo material adicionado com sucesso!")
                     st.rerun()
 
-    # --- MENU 3. RECEBIMENTO ---
+    # --- MENU 3. RECEBIMENTO (INSPEÇÃO 5S - ORIGINAL) ---
     elif menu == "3. Recebimento (Inspeção 5S)":
         st.header("Recebimento Técnica 5S")
-        with st.expander("📚 INSTRUÇÕES: Padrão 5S", expanded=True):
-            st.write("1. Utilização | 2. Organização | 3. Limpeza | 4. Padronização | 5. Disciplina")
         
+        with st.expander("📚 INSTRUÇÕES: Padrão 5S (Clique para abrir/fechar)", expanded=True):
+            st.info("Siga este checklist mental e visual antes de dar entrada no material:")
+            dados_5s = {
+                "Senso": ["1. Utilização (Seiri)", "2. Organização (Seiton)", "3. Limpeza (Seiso)", "4. Padronização (Seiketsu)", "5. Disciplina (Shitsuke)"],
+                "Descrição": ["Separar o necessário do desnecessário", "Um lugar para cada coisa", "Limpar e não sujar", "Manter a higiene e padrões", "Cumprir os procedimentos"],
+                "Status na Chegada": ["Verificar Validade/Estado", "Definir local no Almoxarifado", "Sem embalagens sujas", "Seguir a norma da obra", "Registro Obrigatório no Sistema"]
+            }
+            st.table(dados_5s)
+
+        st.divider()
+        st.subheader("Registrar Entrada de Material")
         mats = query_db("SELECT id, material FROM materiais")
+        
         if not mats.empty:
-            m_id = st.selectbox("Material Chegando", mats['id'], format_func=lambda x: mats[mats['id']==x]['material'].values[0])
-            qtd = st.number_input("Quantidade", min_value=1)
-            c1 = st.checkbox("✅ Material conferido e sem avarias?")
-            c2 = st.checkbox("✅ Alocado no local correto?")
+            m_id = st.selectbox("Selecionar Material Chegando", mats['id'], format_func=lambda x: mats[mats['id']==x]['material'].values[0])
+            qtd = st.number_input("Quantidade Recebida", min_value=1)
+            
+            c1 = st.checkbox("✅ Material conferido e sem avarias? (Qualidade)")
+            c2 = st.checkbox("✅ Alocado no local correto? (Organização)")
+            
             if st.button("Confirmar Entrada no Estoque"):
                 if c1 and c2:
                     executar_sql("UPDATE materiais SET estoque = estoque + ? WHERE id = ?", (qtd, m_id))
-                    st.success("Estoque atualizado!")
-                else: st.error("A inspeção 5S é obrigatória!")
+                    st.success("Entrada registrada com sucesso! O estoque foi atualizado.")
+                else:
+                    st.error("⚠️ Atenção: A inspeção visual (checkbox acima) é obrigatória para registrar a entrada!")
+        else:
+            st.warning("O banco de dados de materiais está vazio.")
 
-    # --- MENU 4. SAÍDA ---
+    # --- MENU 4. SAÍDA PARA O CANTEIRO (ORIGINAL) ---
     elif menu == "4. Saída para o Canteiro":
         st.header("Saída de Materiais [DO]")
-        obras = query_db("SELECT nome_obra FROM obras")
+        obras = query_db("SELECT id, nome_obra FROM obras")
         mats = query_db("SELECT id, material, estoque FROM materiais")
         
         if not obras.empty and not mats.empty:
-            with st.form("saida_form"):
-                o_nome = st.selectbox("Obra Destino:", obras['nome_obra'])
-                m_id = st.selectbox("Material Retirado:", mats['id'], format_func=lambda x: mats[mats['id']==x]['material'].values[0])
-                qtd_out = st.number_input("Quantidade:", min_value=1)
-                data_s = st.date_input("Data da Saída:", datetime.now())
-                
-                if st.form_submit_button("Confirmar Entrega ao Canteiro"):
-                    m_nome = mats[mats['id']==m_id]['material'].values[0]
-                    est_atual = mats[mats['id']==m_id]['estoque'].values[0]
-                    
-                    if est_atual >= qtd_out:
-                        executar_sql("UPDATE materiais SET estoque = estoque - ? WHERE id = ?", (qtd_out, m_id))
-                        executar_sql("INSERT INTO movimentacao (obra_nome, material_nome, quantidade, data) VALUES (?,?,?,?)",
-                                     (o_nome, m_nome, qtd_out, str(data_s)))
-                        st.success("Saída concluída e registrada no histórico!")
-                    else: st.error(f"Estoque insuficiente. Você tem {est_atual} unidades.")
-        else: st.warning("Cadastre obras e materiais antes de fazer movimentações.")
+            o_id = st.selectbox("Obra Destino", obras['id'], format_func=lambda x: obras[obras['id']==x]['nome_obra'].values[0])
+            m_id = st.selectbox("Material Retirado", mats['id'], format_func=lambda x: mats[mats['id']==x]['material'].values[0])
+            qtd_out = st.number_input("Quantidade", min_value=1)
+            
+            if st.button("Confirmar Entrega ao Canteiro"):
+                estoque_atual = mats[mats['id']==m_id]['estoque'].values[0]
+                if estoque_atual >= qtd_out:
+                    executar_sql("UPDATE materiais SET estoque = estoque - ? WHERE id = ?", (qtd_out, m_id))
+                    executar_sql("INSERT INTO movimentacao (obra_id, material_id, quantidade, tipo, data) VALUES (?,?,?,?,?)",
+                                 (o_id, m_id, qtd_out, 'SAIDA', datetime.now().strftime('%Y-%m-%d')))
+                    st.success("Saída concluída! O estoque foi reduzido.")
+                else:
+                    st.error(f"Estoque insuficiente! Você tem apenas {estoque_atual} unidades deste material.")
+        else:
+            st.warning("Cadastre obras e materiais antes de fazer movimentações.")
 
-    # --- MENU 5. DASHBOARD ---
+    # --- MENU 5. MONITORAMENTO / DASHBOARD (ORIGINAL) ---
     elif menu == "5. Monitoramento (Dashboard)":
         st.header("Dashboard de Controle [CHECK]")
-        t_est, t_dia, t_obra = st.tabs(["Situação do Estoque", "Gráfico Diário", "Consumo por Obra"])
+        df_mat = query_db("SELECT * FROM materiais")
         
-        with t_est:
-            df_mat = query_db("SELECT * FROM materiais")
-            if not df_mat.empty:
-                def status_cor(row):
-                    if row['estoque'] <= row['ponto_pedido']: return '🔴 COMPRAR AGORA'
-                    elif row['lead_time'] > 15 and row['estoque'] <= (row['ponto_pedido'] * 1.8): return '🟠 ALERTA'
-                    else: return '🟢 ESTOQUE OK'
-                df_mat['Status'] = df_mat.apply(status_cor, axis=1)
-                fig_bar = px.bar(df_mat, x='material', y='estoque', color='Status', 
-                                 color_discrete_map={'🔴 COMPRAR AGORA':'#EF553B', '🟠 ALERTA': '#FFA500', '🟢 ESTOQUE OK':'#00CC96'})
-                st.plotly_chart(fig_bar, use_container_width=True)
+        if not df_mat.empty:
+            def definir_status(row):
+                if row['estoque'] <= row['ponto_pedido']: return '🔴 COMPRAR AGORA'
+                elif row['estoque'] <= (row['ponto_pedido'] * 1.5): return '🟠 ATENÇÃO'
+                else: return '🟢 ESTOQUE OK'
 
-        with t_dia:
-            df_hist = query_db("SELECT * FROM movimentacao")
-            if not df_hist.empty:
-                df_hist['data'] = pd.to_datetime(df_hist['data'])
-                df_dia = df_hist.groupby('data')['quantidade'].sum().reset_index()
-                fig_evolucao = px.line(df_dia, x='data', y='quantidade', markers=True, title="Materiais consumidos por dia")
-                st.plotly_chart(fig_evolucao, use_container_width=True)
-            else: st.info("Sem dados de saída registrados.")
+            df_mat['Status'] = df_mat.apply(definir_status, axis=1)
+            
+            st.subheader("Situação Crítica de Materiais (Kanban)")
+            st.dataframe(df_mat[['material', 'estoque', 'ponto_pedido', 'origem', 'Status']], use_container_width=True)
+            
+            st.divider()
+            st.subheader("Visualização Gráfica do Estoque")
+            fig = px.bar(df_mat, x='material', y='estoque', color='Status', 
+                         color_discrete_map={
+                             '🔴 COMPRAR AGORA':'#EF553B', 
+                             '🟠 ATENÇÃO': '#FFA500',
+                             '🟢 ESTOQUE OK':'#00CC96'
+                         })
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Nenhum dado de material encontrado.")
 
-        with t_obra:
-            if not df_hist.empty:
-                fig_pie = px.pie(df_hist, values='quantidade', names='obra_nome', title="Distribuição por Obra")
-                st.plotly_chart(fig_pie, use_container_width=True)
-                st.table(df_hist.sort_values(by='data', ascending=False))
-
+    # Botão de Sair
     st.sidebar.divider()
     if st.sidebar.button("Sair do Sistema (Logout)"):
         st.session_state.logged_in = False
