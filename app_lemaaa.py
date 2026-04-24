@@ -8,7 +8,7 @@ import plotly.express as px
 st.set_page_config(page_title="SIGO - Gestão 360", layout="wide")
 
 # Mudei o nome para garantir um banco de dados limpo e sem erros antigos!
-DB_PATH = "sigo_oficial.db"
+DB_PATH = "sigo_dados.db"
 
 # --- 2. BASE DE DADOS E CONEXÕES ---
 def init_db():
