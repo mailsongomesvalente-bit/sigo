@@ -7,7 +7,7 @@ import plotly.express as px
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="SIGO - Gestão 360", layout="wide")
 
-DB_PATH = "sigo_dados.db"
+DB_PATH = "sigo_v2.db"
 
 # --- 2. BASE DE DADOS E CONEXÕES ---
 def init_db():
