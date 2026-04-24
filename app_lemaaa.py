@@ -7,7 +7,8 @@ import plotly.express as px
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="SIGO - Gestão 360", layout="wide")
 
-DB_PATH = "sigo_v2.db"
+# Mudei o nome para garantir um banco de dados limpo e sem erros antigos!
+DB_PATH = "sigo_dados_finais.db"
 
 # --- 2. BASE DE DADOS E CONEXÕES ---
 def init_db():
@@ -133,7 +134,7 @@ if login():
                             for _, row in insumos.iterrows():
                                 executar_sql("INSERT INTO movimentacao (obra_id, material_id, quantidade, tipo, data) VALUES (?,?,?,?,?)",
                                              (dest_id, row['material_id'], row['quantidade'], 'SAIDA', datetime.now().strftime('%Y-%m-%d')))
-                            st.success("Lista de materiais clonada com sucesso!")
+                            st.success("Lista de materiais clonada com sucesso! Verifique o Menu 5.")
                         else: st.warning("A obra selecionada não possui materiais registrados para copiar.")
                     else: st.error("Selecione obras diferentes.")
             else: st.warning("É necessário ter pelo menos duas obras cadastradas para usar esta função.")
@@ -256,10 +257,10 @@ if login():
             st.warning("Nenhum dado de material encontrado.")
 
         # =========================================================
-        # AQUI ESTÁ A ADIÇÃO DA TABELA DE HISTÓRICO
+        # TABELA DE HISTÓRICO + GRÁFICO (RASTREABILIDADE)
         # =========================================================
         st.divider()
-        st.subheader("Histórico de Consumo por Obra (Rastreabilidade)")
+        st.subheader("Rastreabilidade e Consumo por Obra")
         
         df_historico = query_db('''
             SELECT o.nome_obra AS "Obra", m.material AS "Insumo Usado", 
@@ -272,7 +273,18 @@ if login():
         ''')
         
         if not df_historico.empty:
-            st.dataframe(df_historico, use_container_width=True)
+            tab_grafico, tab_tabela = st.tabs(["📊 Visão Gráfica", "📋 Tabela Detalhada"])
+            
+            with tab_grafico:
+                df_pizza = df_historico.groupby("Obra")["Qtd"].sum().reset_index()
+                fig_pizza = px.pie(df_pizza, values='Qtd', names='Obra', 
+                                   title="Distribuição de Materiais por Obra", 
+                                   hole=0.4, 
+                                   color_discrete_sequence=px.colors.qualitative.Pastel)
+                st.plotly_chart(fig_pizza, use_container_width=True)
+                
+            with tab_tabela:
+                st.dataframe(df_historico, use_container_width=True)
         else:
             st.info("Nenhuma saída de material registrada ainda. Vá ao Menu 4 para enviar materiais ao canteiro.")
 
