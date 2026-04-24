@@ -87,7 +87,7 @@ if login():
         "5. Monitoramento (Dashboard)"
     ])
 
-    # --- MENU 1. PLANEJAMENTO DE OBRAS (AGORA COM CLONAGEM) ---
+    # --- MENU 1. PLANEJAMENTO DE OBRAS ---
     if menu == "1. Planejamento de Obras":
         st.header("Planejamento Estratégico [PLAN]")
         t1, t2, t3 = st.tabs(["Cadastrar Obra", "Cronograma (Gantt)", "📋 Clonar Insumos"])
@@ -138,7 +138,7 @@ if login():
                     else: st.error("Selecione obras diferentes.")
             else: st.warning("É necessário ter pelo menos duas obras cadastradas para usar esta função.")
 
-    # --- MENU 2. GESTÃO DE COMPRAS (AGORA COM CADASTRO E LEAD TIME) ---
+    # --- MENU 2. GESTÃO DE COMPRAS ---
     elif menu == "2. Gestão de Compras (o que precisa)":
         st.header("Gestão de Compras & Suprimentos")
         t_lista, t_novo = st.tabs(["Necessidade de Compra", "➕ Cadastrar Material"])
@@ -147,7 +147,6 @@ if login():
             df_compras = query_db("SELECT material, estoque, ponto_pedido, origem, lead_time FROM materiais WHERE estoque <= ponto_pedido")
             if not df_compras.empty:
                 st.error("🚨 ATENÇÃO: Itens abaixo do ponto de pedido (Comprar Imediatamente):")
-                # Lógica do tempo que vai chegar
                 hoje = datetime.now()
                 df_compras['Previsão de Chegada'] = df_compras['lead_time'].apply(lambda x: (hoje + timedelta(days=x)).strftime('%d/%m/%Y'))
                 st.table(df_compras)
@@ -159,7 +158,6 @@ if login():
                 nome = st.text_input("Nome do Insumo")
                 origem = st.selectbox("Origem do Material", ["Local (PA)", "Sudeste (SP/MG/RJ)", "Sul (SC/PR)", "Nordeste"])
                 
-                # O sistema sugere um tempo médio baseado na região
                 tempos = {"Local (PA)": 3, "Nordeste": 12, "Sudeste (SP/MG/RJ)": 20, "Sul (SC/PR)": 25}
                 tempo_sugerido = tempos[origem]
                 
@@ -173,7 +171,7 @@ if login():
                     st.success("Novo material adicionado com sucesso!")
                     st.rerun()
 
-    # --- MENU 3. RECEBIMENTO (INSPEÇÃO 5S - ORIGINAL) ---
+    # --- MENU 3. RECEBIMENTO (INSPEÇÃO 5S) ---
     elif menu == "3. Recebimento (Inspeção 5S)":
         st.header("Recebimento Técnica 5S")
         
@@ -206,7 +204,7 @@ if login():
         else:
             st.warning("O banco de dados de materiais está vazio.")
 
-    # --- MENU 4. SAÍDA PARA O CANTEIRO (ORIGINAL) ---
+    # --- MENU 4. SAÍDA PARA O CANTEIRO ---
     elif menu == "4. Saída para o Canteiro":
         st.header("Saída de Materiais [DO]")
         obras = query_db("SELECT id, nome_obra FROM obras")
@@ -229,7 +227,7 @@ if login():
         else:
             st.warning("Cadastre obras e materiais antes de fazer movimentações.")
 
-    # --- MENU 5. MONITORAMENTO / DASHBOARD (ORIGINAL) ---
+    # --- MENU 5. MONITORAMENTO / DASHBOARD ---
     elif menu == "5. Monitoramento (Dashboard)":
         st.header("Dashboard de Controle [CHECK]")
         df_mat = query_db("SELECT * FROM materiais")
@@ -256,6 +254,27 @@ if login():
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("Nenhum dado de material encontrado.")
+
+        # =========================================================
+        # AQUI ESTÁ A ADIÇÃO DA TABELA DE HISTÓRICO
+        # =========================================================
+        st.divider()
+        st.subheader("Histórico de Consumo por Obra (Rastreabilidade)")
+        
+        df_historico = query_db('''
+            SELECT o.nome_obra AS "Obra", m.material AS "Insumo Usado", 
+                   mov.quantidade AS "Qtd", mov.data AS "Data da Saída"
+            FROM movimentacao mov
+            JOIN obras o ON mov.obra_id = o.id
+            JOIN materiais m ON mov.material_id = m.id
+            WHERE mov.tipo = 'SAIDA'
+            ORDER BY mov.data DESC
+        ''')
+        
+        if not df_historico.empty:
+            st.dataframe(df_historico, use_container_width=True)
+        else:
+            st.info("Nenhuma saída de material registrada ainda. Vá ao Menu 4 para enviar materiais ao canteiro.")
 
     # Botão de Sair
     st.sidebar.divider()
