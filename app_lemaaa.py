@@ -3,40 +3,34 @@ import pandas as pd
 import sqlite3
 from datetime import datetime, timedelta
 import plotly.express as px
+import io  # Necessário para gerar o arquivo em memória
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="SIGO - Gestão 360", layout="wide")
 
-# Mudei o nome para garantir um banco de dados limpo e sem erros antigos!
-DB_PATH = "sigo_dados.db"
+DB_PATH = "sigo_oficial.db"
 
 # --- 2. BASE DE DADOS E CONEXÕES ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    
     c.execute('''CREATE TABLE IF NOT EXISTS materiais 
                  (id INTEGER PRIMARY KEY, material TEXT, estoque INTEGER, 
                   ponto_pedido INTEGER, em_transito INTEGER, origem TEXT, lead_time INTEGER)''')
-    
     c.execute('''CREATE TABLE IF NOT EXISTS obras 
                  (id INTEGER PRIMARY KEY, nome_obra TEXT, data_inicio TEXT, 
                   data_fim TEXT, status_obra TEXT)''')
-    
     c.execute('''CREATE TABLE IF NOT EXISTS movimentacao 
                  (id INTEGER PRIMARY KEY, obra_id INTEGER, material_id INTEGER, 
                   quantidade INTEGER, tipo TEXT, data TEXT)''')
-    
-    # Dados de teste garantindo as 3 Cores no Kanban e as origens
     c.execute("SELECT count(*) FROM materiais")
     if c.fetchone()[0] == 0:
         materiais_base = [
-            ('Cimento (Fundação/Geral)', 5, 15, 0, 'Local (PA)', 3),          # Vermelho
-            ('Porcelanato (Revestimento)', 12, 10, 0, 'Sudeste', 20),         # Laranja
-            ('Esquadrias de Alumínio', 50, 10, 0, 'Nordeste', 12)             # Verde
+            ('Cimento (Fundação/Geral)', 5, 15, 0, 'Local (PA)', 3),
+            ('Porcelanato (Revestimento)', 12, 10, 0, 'Sudeste', 20),
+            ('Esquadrias de Alumínio', 50, 10, 0, 'Nordeste', 12)
         ]
         c.executemany("INSERT INTO materiais (material, estoque, ponto_pedido, em_transito, origem, lead_time) VALUES (?,?,?,?,?,?)", materiais_base)
-    
     conn.commit()
     conn.close()
 
@@ -62,7 +56,6 @@ init_db()
 def login():
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
-
     if not st.session_state.logged_in:
         st.title("🧱 Software SIGO - Login")
         with st.form("login_sigo"):
@@ -150,16 +143,7 @@ if login():
                 st.error("🚨 ATENÇÃO: Itens abaixo do ponto de pedido (Comprar Imediatamente):")
                 hoje = datetime.now()
                 df_compras['Previsão de Chegada'] = df_compras['lead_time'].apply(lambda x: (hoje + timedelta(days=x)).strftime('%d/%m/%Y'))
-                
-                # ALTERAÇÃO: Renomeando colunas para iniciar com maiúscula
-                df_compras.rename(columns={
-                    'material': 'Material',
-                    'estoque': 'Estoque',
-                    'ponto_pedido': 'Ponto_pedido',
-                    'origem': 'Origem',
-                    'lead_time': 'Lead_time'
-                }, inplace=True)
-                
+                df_compras.rename(columns={'material': 'Material', 'estoque': 'Estoque', 'ponto_pedido': 'Ponto_pedido', 'origem': 'Origem', 'lead_time': 'Lead_time'}, inplace=True)
                 st.table(df_compras)
             else:
                 st.success("✅ Estoque saudável. Nada para comprar no momento.")
@@ -168,14 +152,11 @@ if login():
             with st.form("cad_material"):
                 nome = st.text_input("Nome do Insumo")
                 origem = st.selectbox("Origem do Material", ["Local (PA)", "Sudeste (SP/MG/RJ)", "Sul (SC/PR)", "Nordeste"])
-                
                 tempos = {"Local (PA)": 3, "Nordeste": 12, "Sudeste (SP/MG/RJ)": 20, "Sul (SC/PR)": 25}
                 tempo_sugerido = tempos[origem]
-                
                 lt = st.number_input("Tempo de Entrega Estimado (Dias)", min_value=1, value=tempo_sugerido)
                 est = st.number_input("Estoque Inicial", min_value=0)
                 pp = st.number_input("Ponto de Pedido (Estoque Mínimo)", min_value=1)
-                
                 if st.form_submit_button("Cadastrar no Sistema"):
                     executar_sql("INSERT INTO materiais (material, estoque, ponto_pedido, em_transito, origem, lead_time) VALUES (?,?,?,?,?,?)", 
                                  (nome, est, pp, 0, origem, lt))
@@ -185,29 +166,22 @@ if login():
     # --- MENU 3. RECEBIMENTO (INSPEÇÃO 5S) ---
     elif menu == "3. Recebimento (Inspeção 5S)":
         st.header("Recebimento Técnica 5S")
-        
         with st.expander("📚 INSTRUÇÕES: Padrão 5S (Clique para abrir/fechar)", expanded=True):
             st.info("Siga este checklist mental e visual antes de dar entrada no material:")
-            
-            # ALTERAÇÃO: "Um lugar para cada coisa" foi modificado para "Um lugar para cada item"
             dados_5s = {
                 "Senso": ["1. Utilização (Seiri)", "2. Organização (Seiton)", "3. Limpeza (Seiso)", "4. Padronização (Seiketsu)", "5. Disciplina (Shitsuke)"],
                 "Descrição": ["Separar o necessário do desnecessário", "Um lugar para cada item", "Limpar e não sujar", "Manter a higiene e padrões", "Cumprir os procedimentos"],
                 "Status na Chegada": ["Verificar Validade/Estado", "Definir local no Almoxarifado", "Sem embalagens sujas", "Seguir a norma da obra", "Registro Obrigatório no Sistema"]
             }
             st.table(dados_5s)
-
         st.divider()
         st.subheader("Registrar Entrada de Material")
         mats = query_db("SELECT id, material FROM materiais")
-        
         if not mats.empty:
             m_id = st.selectbox("Selecionar Material Chegando", mats['id'], format_func=lambda x: mats[mats['id']==x]['material'].values[0])
             qtd = st.number_input("Quantidade Recebida", min_value=1)
-            
             c1 = st.checkbox("✅ Material conferido e sem avarias? (Qualidade)")
             c2 = st.checkbox("✅ Alocado no local correto? (Organização)")
-            
             if st.button("Confirmar Entrada no Estoque"):
                 if c1 and c2:
                     executar_sql("UPDATE materiais SET estoque = estoque + ? WHERE id = ?", (qtd, m_id))
@@ -222,12 +196,10 @@ if login():
         st.header("Saída de Materiais [DO]")
         obras = query_db("SELECT id, nome_obra FROM obras")
         mats = query_db("SELECT id, material, estoque FROM materiais")
-        
         if not obras.empty and not mats.empty:
             o_id = st.selectbox("Obra Destino", obras['id'], format_func=lambda x: obras[obras['id']==x]['nome_obra'].values[0])
             m_id = st.selectbox("Material Retirado", mats['id'], format_func=lambda x: mats[mats['id']==x]['material'].values[0])
             qtd_out = st.number_input("Quantidade", min_value=1)
-            
             if st.button("Confirmar Entrega ao Canteiro"):
                 estoque_atual = mats[mats['id']==m_id]['estoque'].values[0]
                 if estoque_atual >= qtd_out:
@@ -252,38 +224,61 @@ if login():
                 else: return '🟢 ESTOQUE OK'
 
             df_mat['Status'] = df_mat.apply(definir_status, axis=1)
+
+            # =========================================================
+            # IMPLEMENTAÇÃO DA EXPORTAÇÃO PARA EXCEL
+            # =========================================================
+            st.subheader("📥 Exportação de Dados")
             
+            # Prepara os dados para o Excel
+            df_hist_excel = query_db('''
+                SELECT o.nome_obra AS "Obra", m.material AS "Insumo", 
+                       mov.quantidade AS "Quantidade", mov.data AS "Data"
+                FROM movimentacao mov
+                JOIN obras o ON mov.obra_id = o.id
+                JOIN materiais m ON mov.material_id = m.id
+            ''')
+
+            # Cria o buffer em memória
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                # Aba 1: Estoque
+                df_mat.to_excel(writer, index=False, sheet_name='Estoque_Atual')
+                # Aba 2: Movimentações
+                if not df_hist_excel.empty:
+                    df_hist_excel.to_excel(writer, index=False, sheet_name='Historico_Movimentacao')
+                
+                # Ajuste básico de layout no Excel
+                workbook = writer.book
+                header_format = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+                for sheet in writer.sheets.values():
+                    sheet.set_column('A:Z', 18)
+
+            st.download_button(
+                label="📊 Gerar Relatório em Excel (.xlsx)",
+                data=output.getvalue(),
+                file_name=f"Relatorio_SIGO_{datetime.now().strftime('%d_%m_%Y')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            st.divider()
+            # =========================================================
+
             st.subheader("Situação Crítica de Materiais (Kanban)")
-            
-            # ALTERAÇÃO: Renomeando colunas para iniciar com maiúscula
             df_mat_exibicao = df_mat[['material', 'estoque', 'ponto_pedido', 'origem', 'Status']].rename(
-                columns={
-                    'material': 'Material',
-                    'estoque': 'Estoque',
-                    'ponto_pedido': 'Ponto_pedido',
-                    'origem': 'Origem'
-                }
+                columns={'material': 'Material', 'estoque': 'Estoque', 'ponto_pedido': 'Ponto_pedido', 'origem': 'Origem'}
             )
             st.dataframe(df_mat_exibicao, use_container_width=True)
             
             st.divider()
             st.subheader("Visualização Gráfica do Estoque")
             fig = px.bar(df_mat, x='material', y='estoque', color='Status', 
-                         color_discrete_map={
-                             '🔴 COMPRAR AGORA':'#EF553B', 
-                             '🟠 ATENÇÃO': '#FFA500',
-                             '🟢 ESTOQUE OK':'#00CC96'
-                         })
+                         color_discrete_map={'🔴 COMPRAR AGORA':'#EF553B', '🟠 ATENÇÃO': '#FFA500', '🟢 ESTOQUE OK':'#00CC96'})
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("Nenhum dado de material encontrado.")
 
-        # =========================================================
-        # TABELA DE HISTÓRICO + GRÁFICO (RASTREABILIDADE)
-        # =========================================================
         st.divider()
         st.subheader("Rastreabilidade e Consumo por Obra")
-        
         df_historico = query_db('''
             SELECT o.nome_obra AS "Obra", m.material AS "Insumo Usado", 
                    mov.quantidade AS "Qtd", mov.data AS "Data da Saída"
@@ -296,21 +291,15 @@ if login():
         
         if not df_historico.empty:
             tab_grafico, tab_tabela = st.tabs(["📊 Visão Gráfica", "📋 Tabela Detalhada"])
-            
             with tab_grafico:
                 df_pizza = df_historico.groupby("Obra")["Qtd"].sum().reset_index()
-                fig_pizza = px.pie(df_pizza, values='Qtd', names='Obra', 
-                                   title="Distribuição de Materiais por Obra", 
-                                   hole=0.4, 
-                                   color_discrete_sequence=px.colors.qualitative.Pastel)
+                fig_pizza = px.pie(df_pizza, values='Qtd', names='Obra', title="Distribuição de Materiais por Obra", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
                 st.plotly_chart(fig_pizza, use_container_width=True)
-                
             with tab_tabela:
                 st.dataframe(df_historico, use_container_width=True)
         else:
-            st.info("Nenhuma saída de material registrada ainda. Vá ao Menu 4 para enviar materiais ao canteiro.")
+            st.info("Nenhuma saída de material registrada ainda.")
 
-    # Botão de Sair
     st.sidebar.divider()
     if st.sidebar.button("Sair do Sistema (Logout)"):
         st.session_state.logged_in = False
